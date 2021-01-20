@@ -1,0 +1,303 @@
+from PyQt5.QtWidgets import QSizePolicy
+
+import well_sint_train
+import math
+import sys
+import os
+from sklearn.cluster import KMeans as knn
+from PyQt5 import QtWidgets
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import pyqtgraph as pg
+import seaborn as sns
+
+
+class my_pril(QtWidgets.QMainWindow, well_sint_train.Ui_MainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setupUi(self)
+        self.actionOpen_Well.triggered.connect(self.open_file)
+        self.actionPower.triggered.connect(self.pow)
+        self.actionFaust.triggered.connect(self.faust_sig)
+        self.actionCrossplot.triggered.connect(self.crossplot)
+        self.actionAutocorrection.triggered.connect(self.auto_corr)
+        self.tbl_data_wells.horizontalHeader().sectionClicked.connect(self.name_data)
+        self.actionZaljaev.triggered.connect(self.zal_sig)
+        self.actionK_mean.triggered.connect(self.calc_knn)
+
+    def my_sum(self, x):
+        sum_ln = 0
+        for i in x:
+            if type(i) == float:
+                sum_ln += i
+        return sum_ln
+
+    def sel_open_file(self):
+        path_to_file = QtWidgets.QFileDialog.getOpenFileName()
+        return path_to_file
+
+    def read_file(self):
+        path = self.sel_open_file()
+        f = open(path[0], 'r').readlines()
+        return f
+
+    def sel_save_file(self):
+        path_to_file = QtWidgets.QFileDialog.getSaveFileName()
+        return path_to_file[0]
+
+    def open_file(self):
+        self.tbl_data_wells.clear()
+        self.comboBox.clear()
+        self.comboBox_2.clear()
+        file = self.read_file()
+        head = file[0].rstrip()
+        lbl_columns = head.split('\t')
+        self.tbl_data_wells.setColumnCount(len(lbl_columns))
+        self.tbl_data_wells.setRowCount(len(file) - 1)
+        self.tbl_data_wells.setHorizontalHeaderLabels(lbl_columns)
+        self.comboBox.addItems(lbl_columns)
+        self.comboBox_2.addItems(lbl_columns)
+        i = 1
+        while i < len(file):
+            st = file[i].rstrip('\n')
+            dt_inp = st.split('\t')
+            j = 0
+            while j < len(dt_inp):
+                if dt_inp[j] == '-1.0000':
+                    dt_inp[j] = 0
+                    dt = QtWidgets.QTableWidgetItem(dt_inp[j])
+                    self.tbl_data_wells.setItem(i - 1, j, dt)
+                else:
+                    dt = QtWidgets.QTableWidgetItem(dt_inp[j])
+                    self.tbl_data_wells.setItem(i - 1, j, dt)
+                    j += 1
+            i += 1
+
+    def slice(self, x):
+        i = 0
+        dt_x = []
+        while i < self.tbl_data_wells.rowCount():
+            if type(x) != None:
+                dt_x.append(self.tbl_data_wells.item(i, x).text())
+            else:
+                dt_x.append(float(0))
+            i += 1
+        return dt_x
+
+    def slice_crs(self, x):
+        i = 0
+        dt_x = []
+        while i < self.tbl_data_wells.rowCount():
+            if type(x) != None:
+                dt_x.append(self.tbl_data_wells.item(i, x).text())
+            else:
+                continue
+            i += 1
+        return dt_x
+
+    def ln(self, x):
+        l = []
+        for n in x:
+            if n != '':
+                l.append(math.log(float(n)))
+            else:
+                l.append(math.log(1))
+        return l
+
+    def sum_xy(self, x, y):
+        i = 0
+        s1 = []
+        while i < len(x):
+            s1.append(x[i]*y[i])
+            i += 1
+        return s1
+
+
+    def sum_mult(self, x, y):
+        s_mult = 0
+        i = 0
+        while i<len(x):
+            if type(x[i]) == float:
+                if type(y[i]) == float:
+                    s_mult += x[i]*y[i]
+            i += 1
+        return s_mult
+
+    def sum_sq(self, x):
+        s_sq = 0
+        for i in x:
+            if type(i) == float:
+                s_sq += i**2
+        return s_sq
+
+    def pow(self):
+        x = self.slice(self.comboBox.currentIndex())
+        y = self.slice(self.comboBox_2.currentIndex())
+        ln_x = self.ln(x)
+        ln_y = self.ln(y)
+        a1 = (len(ln_x) * self.sum_mult(ln_x, ln_y) - self.my_sum(ln_x) * self.my_sum(ln_y)) / (len(ln_x) * self.sum_sq(ln_x) - self.my_sum(ln_x) ** 2)
+        ln1 = self.my_sum(ln_x)*a1
+        ln2 = self.my_sum(ln_y)
+        p = (ln2-ln1)/len(ln_x)
+        a0 = math.exp(p)
+        self.coef_a.setText("%.3f" % a0)
+        self.coef_b.setText("%.3f" % a1)
+
+    def nullific(self, x):
+        for i, val in enumerate(x):
+            if val == '':
+                x[i] = 0
+                x[i] = float(x[i])
+            else:
+                x[i] = float(x[i])
+        return x
+
+    def crossplot(self):
+        x = self.nullific(self.slice_crs(self.comboBox_2.currentIndex()))
+        y = self.nullific(self.slice_crs(self.comboBox.currentIndex()))
+        if len(self.curve) != 0:
+            for i in self.curve:
+                self.crossplot_widget.removeItem(i)
+            cross = pg.ScatterPlotItem()
+            cross.setData(x, y)
+            self.crossplot_widget.addItem(cross)
+            self.curve.append(cross)
+        else:
+            cross = pg.ScatterPlotItem()
+            cross.setData(x, y)
+            self.crossplot_widget.addItem(cross)
+            self.curve.append(cross)
+
+    def calc_faust(self, depth, r0):
+        a = float(self.coef_a.toPlainText())
+        b = float(self.coef_b.toPlainText())
+        faust = a/((depth*r0)**b)
+        return faust
+
+    def faust(self):
+        depth = self.nullific(self.slice(self.comboBox.currentIndex()))
+        r0 = self.nullific(self.slice(self.comboBox_2.currentIndex()))
+        ak_sin = []
+        i = 0
+        while i < len(depth):
+            if r0[i] != 0:
+                ak_sin.append(self.calc_faust(depth[i], r0[i]))
+            else:
+                ak_sin.append(float(0))
+            i += 1
+        return ak_sin
+
+    def faust_sig(self):
+        ak_sin = self.faust()
+        if self.las_layer.count != 0:
+            self.vis_cleaner()
+        self.las_axis(ak_sin)
+        self.calc_vel(ak_sin)
+        self.tdl_svod(ak_sin)
+
+    def las_axis(self, x):
+        y = self.slice(0)
+        las_curve = pg.PlotWidget()
+        log_curve = pg.ScatterPlotItem()
+        log_curve.setData(x, y)
+        las_curve.addItem(log_curve)
+        self.las_layer.addWidget(las_curve)
+        self.curve_las.append(las_curve)
+    
+    def vis_cleaner(self):
+        for i in self.curve_las:
+            self.las_layer.removeWidget(i)
+
+    def calc_vel(self, x):
+        v = []
+        for i in x:
+            if i != 0:
+                v.append(1000000/i)
+            else:
+                v.append(float(0))
+        self.las_axis(v)
+        return v
+
+    def auto_corr(self, x):
+        a = self.coef_a.toPlainText()
+        b = self.coef_b.toPlainText()
+        max_vel = float(self.textEdit.toPlainText())
+        print(max(x))
+
+    def name_data(self, x):
+        header = self.tbl_data_wells.horizontalHeaderItem(x).text()
+        self.list_mlr.addItem(header)
+
+    def zal(self):
+        ngk = self.nullific(self.slice(self.comboBox_2.currentIndex()))
+        ak_sin = []
+        i = 0
+        while i < len(ngk):
+            if ngk[i] != 0:
+                ak_sin.append(self.calc_zal(ngk[i]))
+            else:
+                ak_sin.append(float(0))
+            i += 1
+        return ak_sin
+
+    def zal_sig(self):
+        ak_sin = self.zal()
+        if self.las_layer.count != 0:
+            self.vis_cleaner()
+        self.las_axis(ak_sin)
+        self.calc_vel(ak_sin)
+        self.tdl_svod(ak_sin)
+
+    def calc_zal(self, x):
+        a = float(self.coef_a.toPlainText())
+        b = float(self.coef_b.toPlainText())
+        zal = (-90) * math.log10(x - a) + b
+        return zal
+
+    def tdl_svod(self, x):
+        self.tbl_sint_data.clear()
+        d = self.slice(0)
+        data_sint = {'Depth': d, 'Sint': x}
+        self.tbl_sint_data.setColumnCount(len(data_sint.keys()))
+        self.tbl_sint_data.setRowCount(len(d))
+        self.tbl_sint_data.setHorizontalHeaderLabels(data_sint.keys())
+        for i, dt in enumerate(data_sint):
+            for j, data in enumerate(data_sint[dt]):
+                sint_sonic = QtWidgets.QTableWidgetItem(str(data))
+                self.tbl_sint_data.setItem(j, i, sint_sonic)
+        sint_df = pd.DataFrame(data_sint)
+
+    def calc_knn(self):
+        model = knn()
+        y = self.nullific(self.slice(self.comboBox.currentIndex()))
+        x = self.nullific(self.slice(self.comboBox_2.currentIndex()))
+        model.fit([x, y])
+        print(1)
+
+
+    # def calc_mlr(self):
+    #     i = 0
+    #     d = np.array(b[0:len(b), 0])
+    #     while i < len(b):
+    #         b[i, 0] = 1
+    #         i = i + 1
+    #     res = np.dot(np.linalg.inv(np.dot(b.transpose(), b)), np.dot(b.transpose(), d))
+
+    # def open_dir(self):
+    #     path_to_dir=self.sel_open_file()
+    #     list_well=os.listdir(path_to_dir)
+    #     for file in list_well:
+    #         if file.endswith(".log"):
+    #             self.tree_wells.in
+
+def main():
+    app = QtWidgets.QApplication(sys.argv)
+    win = my_pril()
+    win.show()
+    app.exec_()
+
+if __name__ == '__main__':
+    main()
